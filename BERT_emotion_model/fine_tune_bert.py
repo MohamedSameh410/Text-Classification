@@ -1,15 +1,14 @@
 # Import needed libs
 import tensorflow as tf
-from transformers import TFAutoModel, AutoTokenizer
+from transformers import TFAutoModelForSequenceClassification, AutoTokenizer, DataCollatorWithPadding
 from datasets import load_dataset
-from Classes.BERTForClassification import BERTForClassification
 from Classes.ModelEvaluation import ModelEvaluation
 
 # Load the dataset
 emotions = load_dataset('SetFit/emotion')
 
 # Load the BERT model
-model = TFAutoModel.from_pretrained("bert-base-uncased")
+model = TFAutoModelForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=6)
 model = model.to('cuda')
 
 # Load the Tokenizer
@@ -17,74 +16,61 @@ tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 
 # Tokenize the dataset
 def tokenize(batch):
-    return tokenizer(batch["text"], padding=True, truncation=True)
+    return tokenizer(batch['text'], padding=True, truncation=True)
 
-emotions_encoded = emotions.map(tokenize, batched=True, batch_size=None)
+emotions_encoded = emotions.map(tokenize, batched=True)
 
-# setting 'input_ids', 'attention_mask', 'token_type_ids', and 'label' to the tensorflow format
-emotions_encoded.set_format('tf', columns=['input_ids', 'attention_mask', 'token_type_ids', 'label'])
-
-
-# Group the inputs into a single dictionary
-def order(inp):
-
-    data = list(inp.values())
-    return {
-        'input_ids': data[1],
-        'attention_mask': data[2],
-        'token_type_ids': data[3]
-    }, data[0]
+# Define the data collator for dynamic padding
+data_collator = DataCollatorWithPadding(tokenizer=tokenizer, return_tensors="tf")
 
 
+# Setting the batch size
+batch_size = 32
 
-# setting the batch size
-BATCH_SIZE = 64
+# Convert dataset to tf.data.Dataset
+def convert_to_tf_dataset(split, batch_size):
+    return emotions_encoded[split].to_tf_dataset(
+        columns=['input_ids', 'attention_mask', 'token_type_ids'],
+        label_cols=['label'],
+        shuffle=(split == 'train'),
+        batch_size=batch_size,
+        collate_fn=data_collator
+    )
 
-# Converting train split of `emotions_encoded` to tensorflow format
-train_dataset = tf.data.Dataset.from_tensor_slices(emotions_encoded['train'][:])
-# Set batch_size and shuffle
-train_dataset = train_dataset.batch(BATCH_SIZE).shuffle(1000)
-# map the `order` function
-train_dataset = train_dataset.map(order, num_parallel_calls=tf.data.AUTOTUNE)
+# Convert the train split
+train_dataset = convert_to_tf_dataset('train')
 
-# Doing the same for val set
-val_dataset = tf.data.Dataset.from_tensor_slices(emotions_encoded['test'][:])
-val_dataset = val_dataset.batch(BATCH_SIZE)
-val_dataset = val_dataset.map(order, num_parallel_calls=tf.data.AUTOTUNE)
+# Convert the val split
+val_dataset = convert_to_tf_dataset('validation')
 
-# Doing the same for test set
-test_dataset = tf.data.Dataset.from_tensor_slices(emotions_encoded['test'][:])
-test_dataset = test_dataset.batch(BATCH_SIZE)
-test_dataset = test_dataset.map(order, num_parallel_calls=tf.data.AUTOTUNE)
-
+# Convert the test split
+test_dataset = convert_to_tf_dataset('test')
 
 #... Fine-tune the model ...
-# Compile the BERT model
-classifier = BERTForClassification(model, num_classes=6)
-
-classifier.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-    loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+# Compile the model
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=5e-5),
+    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
     metrics=['accuracy']
 )
 
-# Train the fine-tuned BERT
-epochs = 5
+# Train the model
+epochs = 3
 
-history = classifier.fit(
+history = model.fit(
     train_dataset,
-    epochs = epochs,
-    validation_data = val_dataset
+    validation_data=val_dataset,
+    epochs=epochs
 )
 
 # Git instance from ModelEvaluation class
-model_eval = ModelEvaluation(classifier)
+model_eval = ModelEvaluation(model)
 
 # Visualize the model performance
-model_eval.model_performance(history, epochs=5)
+model_eval.model_performance(history, epochs = epochs)
 
 # Evaluate the model
-classifier.evaluate(test_dataset)
+model.evaluate(test_dataset)
 
 # Set the label names
 label_names = ['sadness', 'joy', 'love', 'anger', 'fear', 'surprise']
@@ -92,8 +78,8 @@ label_names = ['sadness', 'joy', 'love', 'anger', 'fear', 'surprise']
 # Display the confusion matrix & print the classification report
 model_eval.evaluate_model_with_confusion_matrix(test_dataset, label_names)
 
-# Save the model to the working directory
-dir_path = 'bert_emotion_classifier'
-classifier.save_the_model(dir_path)
+# Save the model and tokenizer
+model.save_pretrained('emotion_model')
+tokenizer.save_pretrained('emotion_model')
 
 

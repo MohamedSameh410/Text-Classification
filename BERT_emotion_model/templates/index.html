@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emotion Prediction</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: linear-gradient(to right, #74ebd5, #ACB6E5);
+            font-family: 'Arial', sans-serif;
+            position: relative;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: -1;
+        }
+        h1 {
+            text-align: center;
+            color: #007bff;
+            margin-top: 50px;
+            font-weight: bold;
+            text-transform: uppercase;
+            animation: fadeIn 1.5s ease-in-out;
+        }
+        form {
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+            animation: slideIn 1.5s ease-in-out;
+        }
+        #text {
+            background: #e9f5ff;
+            border: 1px solid #007bff;
+        }
+        button {
+            width: 100%;
+            background: #007bff;
+            border: none;
+            transition: background-color 0.3s ease-in-out;
+        }
+        button:hover {
+            background: #0056b3;
+            transform: scale(1.05);
+        }
+        #result {
+            text-align: center;
+            margin-top: 20px;
+            opacity: 0;
+            animation: fadeInResult 1s ease-in-out forwards;
+        }
+        .emoji {
+            font-size: 5rem;
+            animation: popIn 1s ease forwards;
+        }
+        .emotion-name {
+            font-size: 1.5rem;
+            color: #007bff;
+            margin-bottom: 10px;
+        }
+        .description {
+            font-size: 1.1rem;
+            margin-top: 20px;
+            background-color: #f7f7f7;
+            padding: 15px;
+            border-radius: 10px;
+            color: #333;
+            animation: slideInDescription 1s ease forwards;
+        }
+        @keyframes fadeIn {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
+        }
+        @keyframes slideIn {
+            0% { transform: translateY(-50px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes fadeInResult {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
+        }
+        @keyframes popIn {
+            0% { transform: scale(0); }
+            100% { transform: scale(1); }
+        }
+        @keyframes slideInDescription {
+            0% { opacity: 0; transform: translateY(30px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="background"></canvas>
+
+    <div class="container">
+        <h1>Emotion Prediction</h1>
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <form id="emotionForm" method="POST" action="/predict">
+                    <div class="form-group">
+                        <label for="text">Enter Text:</label>
+                        <textarea class="form-control" id="text" name="text" rows="4" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Predict Emotion</button>
+                </form>
+
+                <div id="result" class="mt-3"></div>
+                <div id="projectDescription" class="description"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Animated particles background
+        const canvas = document.getElementById('background');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let particlesArray = [];
+
+        // Create particle
+        class Particle {
+            constructor(x, y, size, color, speedX, speedY) {
+                this.x = x;
+                this.y = y;
+                this.size = size;
+                this.color = color;
+                this.speedX = speedX;
+                this.speedY = speedY;
+            }
+
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+
+                // Reposition particles that go out of bounds
+                if (this.x > canvas.width || this.x < 0) {
+                    this.speedX *= -1;
+                }
+                if (this.y > canvas.height || this.y < 0) {
+                    this.speedY *= -1;
+                }
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2, false);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+            }
+        }
+
+        function init() {
+            particlesArray = [];
+            for (let i = 0; i < 150; i++) {
+                let size = Math.random() * 3 + 1;
+                let x = Math.random() * (canvas.width - size * 2) + size;
+                let y = Math.random() * (canvas.height - size * 2) + size;
+                let speedX = (Math.random() * 0.4) - 0.2;
+                let speedY = (Math.random() * 0.4) - 0.2;
+                let color = 'rgba(255, 255, 255, 0.8)';
+                particlesArray.push(new Particle(x, y, size, color, speedX, speedY));
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particlesArray.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+            requestAnimationFrame(animate);
+        }
+
+        init();
+        animate();
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            init(); // Reinitialize particles after resizing
+        });
+    </script>
+
+    <script>
+        document.getElementById('emotionForm').addEventListener('submit', function(event) {
+            event.preventDefault(); // Prevent form submission
+
+            const formData = new FormData(this);
+
+            fetch('/predict', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                const resultDiv = document.getElementById('result');
+                const descriptionDiv = document.getElementById('projectDescription');
+                if (data.error) {
+                    resultDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                } else {
+                    const emotion = data.prediction;
+                    let emoji = '';
+                    let description = '';
+
+                    switch(emotion) {
+                        case 'sadness':
+                            emoji = '😢';
+                            description = 'The model detected sadness in your input. This emotion reflects feelings of sorrow, grief, or disappointment. The model analyzes key linguistic cues that are typically associated with this emotional state.';
+                            break;
+                        case 'joy':
+                            emoji = '😊';
+                            description = 'The model detected joy in your input. This emotion signifies happiness, cheerfulness, and positive energy. Our machine learning model detects patterns in your text that indicate this uplifting emotion.';
+                            break;
+                        case 'love':
+                            emoji = '❤️';
+                            description = 'The model detected love in your input. Love represents deep affection, care, and connection. The model identifies linguistic markers that suggest emotional warmth and attachment.';
+                            break;
+                        case 'anger':
+                            emoji = '😡';
+                            description = 'The model detected anger in your input. Anger can manifest as frustration, rage, or irritation. Our model assesses text patterns that typically reflect a heightened emotional response.';
+                            break;
+                        case 'fear':
+                            emoji = '😨';
+                            description = 'The model detected fear in your input. Fear is often associated with anxiety or concern for safety. The model processes language that reflects apprehension or threat perception.';
+                            break;
+                        case 'surprise':
+                            emoji = '😲';
+                            description = 'The model detected surprise in your input. Surprise is linked to unexpected events or information. The model finds linguistic indicators of shock, amazement, or astonishment.';
+                            break;
+                        default:
+                            emoji = '❓';
+                            description = 'The emotion detected is not among the primary emotions we are currently predicting. Our model will continue learning to refine its predictions further.';
+                    }
+
+                    // Update the result with emoji and description
+                    resultDiv.innerHTML = `
+                        <div class="alert alert-success">
+                            <div class="emotion-name"><strong>Emotion: ${emotion}</strong></div>
+                            <span class="emoji">${emoji}</span>
+                        </div>
+                    `;
+                    descriptionDiv.innerHTML = `<p>${description}</p>`;
+
+                    resultDiv.style.opacity = 0; // Reset opacity for animation
+                    setTimeout(() => {
+                        resultDiv.style.opacity = 1;
+                    }, 50); // Delay to trigger animation
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('result').innerHTML = `<div class="alert alert-danger">An error occurred while predicting.</div>`;
+            });
+        });
+    </script>
+</body>
+</html>
